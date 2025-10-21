@@ -1,0 +1,73 @@
+services:
+  # 股票分析API服务
+  stock-analysis-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock-analysis-api
+    ports:
+      - "${API_PORT:-8085}:8085"
+    environment:
+      # Python环境
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # API配置
+      - API_HOST=0.0.0.0
+      - API_PORT=8085
+      # 时区设置
+      - TZ=Asia/Shanghai
+
+    volumes:
+      # 日志持久化
+      - ./logs:/app/logs
+
+      # 分析结果持久化
+      - ./analysis_results:/app/analysis_results
+
+      # API代码挂载（开发环境可选）
+      # - ./stock_analysis_api.py:/app/stock_analysis_api.py
+
+    networks:
+      - stock-analysis-network
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # 日志驱动
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 依赖服务（如需数据库，可在此扩展）
+    depends_on: []
+
+networks:
+  stock-analysis-network:
+    driver: bridge
+    name: stock-analysis-network
+
+volumes:
+  logs:
+    driver: local
+  analysis_results:
+    driver: local

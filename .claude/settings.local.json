@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv pip index versions akshare)",
+      "Bash(pip index versions akshare)",
+      "Bash(Select-Object -First 30)",
+      "WebSearch",
+      "Bash(python:*)",
+      "Bash(docker exec:*)",
+      "Bash(for stock in \"NVDA\" \"AAPL\" \"TSLA\" \"MSFT\")",
+      "Bash(do echo \"=== 测试美股 $stock ===\")",
+      "Bash(curl:*)",
+      "Bash(done)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose ps:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
