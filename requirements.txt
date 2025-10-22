@@ -9,6 +9,9 @@ scipy==1.15.1
 
 # 数据获取和分析库
 akshare==1.17.69
+efinance==0.5.5.2
+yfinance==0.2.44
+baostock==0.8.8
 tqdm==4.67.1
 
 # 网络和API请求

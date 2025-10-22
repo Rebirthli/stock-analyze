@@ -28,12 +28,39 @@ def get_company_name(stock_code: str, market_type: str) -> str:
                     return name_item.iloc[0]['value']
 
         elif market_type == 'HK':
-            # 港股获取股票名称
-            stock_info = ak.stock_hk_spot_em()
-            if stock_info is not None and not stock_info.empty:
-                stock_row = stock_info[stock_info['代码'] == stock_code]
-                if not stock_row.empty:
-                    return stock_row.iloc[0]['名称']
+            # 港股获取股票名称 - 改进版本
+            try:
+                # 方案1: 尝试使用个股信息查询
+                stock_info = ak.stock_individual_info_em(symbol=f"HK{stock_code}")
+                if stock_info is not None and not stock_info.empty:
+                    name_item = stock_info[stock_info['item'] == '股票简称']
+                    if not name_item.empty:
+                        return name_item.iloc[0]['value']
+            except Exception as e1:
+                logger.debug(f"港股个股信息查询失败: {str(e1)[:50]}")
+
+            try:
+                # 方案2: 尝试使用港股实时行情
+                stock_info = ak.stock_hk_spot_em()
+                if stock_info is not None and not stock_info.empty:
+                    # 尝试多种代码格式匹配
+                    code_variants = [stock_code, f"0{stock_code}", f"HK{stock_code}"]
+                    for code in code_variants:
+                        stock_row = stock_info[stock_info['代码'] == code]
+                        if not stock_row.empty:
+                            return stock_row.iloc[0]['名称']
+            except Exception as e2:
+                logger.debug(f"港股实时行情查询失败: {str(e2)[:50]}")
+
+            try:
+                # 方案3: 尝试使用历史数据获取名称
+                hist_data = ak.stock_hk_hist(symbol=stock_code, period="daily",
+                                           start_date="20241001", end_date="20241031")
+                if hist_data is not None and not hist_data.empty:
+                    # 如果历史数据获取成功，但无法获取名称，返回标准格式
+                    return f"HK股票{stock_code}"
+            except Exception as e3:
+                logger.debug(f"港股历史数据查询失败: {str(e3)[:50]}")
 
         elif market_type == 'US':
             # 美股获取股票名称

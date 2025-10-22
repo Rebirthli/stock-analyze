@@ -27,6 +27,9 @@ import random
 import logging
 import pandas as pd
 import akshare as ak
+import baostock as bs
+import yfinance as yf
+import efinance as ef
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
@@ -150,6 +153,27 @@ class RobustStockDataFetcher:
                     ),
                     min_interval=0.4,
                     max_retries=3
+                ),
+                DataSourceConfig(
+                    name="baostock_history",
+                    priority=4,
+                    func=self._get_a_stock_data_from_baostock,
+                    min_interval=0.3,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="stock_zh_a_spot_em",
+                    priority=5,
+                    func=self._get_a_spot_data_from_em,
+                    min_interval=0.2,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="efinance_a_stock",
+                    priority=6,
+                    func=self._get_a_stock_data_from_efinance,
+                    min_interval=0.3,
+                    max_retries=3
                 )
             ],
             MarketType.HK_STOCK: [
@@ -172,8 +196,15 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_hk_spot_em",
+                    name="yfinance_hk",
                     priority=3,
+                    func=self._get_hk_data_from_yfinance,
+                    min_interval=0.3,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="stock_hk_spot_em",
+                    priority=4,
                     func=lambda code, start, end: ak.stock_hk_spot_em(),
                     min_interval=0.3,
                     max_retries=2
@@ -181,19 +212,33 @@ class RobustStockDataFetcher:
             ],
             MarketType.US_STOCK: [
                 DataSourceConfig(
-                    name="stock_us_daily",
+                    name="yfinance_download",
                     priority=1,
+                    func=self._get_us_data_from_yfinance,
+                    min_interval=0.3,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="stock_us_daily",
+                    priority=2,
                     func=lambda code, start, end: ak.stock_us_daily(
-                        symbol=code, start_date=start, end_date=end
+                        symbol=code, adjust="qfq"
                     ),
                     min_interval=0.4,
                     max_retries=3
                 ),
                 DataSourceConfig(
+                    name="efinance_us_stock",
+                    priority=3,
+                    func=self._get_us_data_from_efinance,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
                     name="stock_us_hist",
-                    priority=2,
+                    priority=4,
                     func=lambda code, start, end: ak.stock_us_hist(
-                        symbol=code, start_date=start, end_date=end
+                        symbol=code, period="daily", start_date=start, end_date=end
                     ),
                     min_interval=0.4,
                     max_retries=3
@@ -210,8 +255,29 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_zh_a_hist",
+                    name="fund_etf_hist_sina",
                     priority=2,
+                    func=lambda code, start, end: ak.fund_etf_hist_sina(symbol=code),
+                    min_interval=0.4,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="yfinance_etf",
+                    priority=3,
+                    func=self._get_etf_data_from_yfinance,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="efinance_stock_quote",
+                    priority=4,
+                    func=self._get_etf_data_from_efinance,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="stock_zh_a_hist",
+                    priority=5,
                     func=lambda code, start, end: ak.stock_zh_a_hist(
                         symbol=code, start_date=start, end_date=end, adjust="qfq"
                     ),
@@ -230,8 +296,29 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_zh_a_hist",
+                    name="fund_lof_spot_em",
                     priority=2,
+                    func=self._get_lof_spot_data_from_em,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="efinance_lof",
+                    priority=3,
+                    func=self._get_etf_data_from_efinance,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="yfinance_lof",
+                    priority=4,
+                    func=self._get_etf_data_from_yfinance,
+                    min_interval=0.3,
+                    max_retries=2
+                ),
+                DataSourceConfig(
+                    name="stock_zh_a_hist",
+                    priority=5,
                     func=lambda code, start, end: ak.stock_zh_a_hist(
                         symbol=code, start_date=start, end_date=end, adjust="qfq"
                     ),
@@ -257,6 +344,224 @@ class RobustStockDataFetcher:
             logger.warning(f"A股实时数据获取失败: {str(e)}")
             return pd.DataFrame()
 
+    def _get_us_data_from_yfinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用yfinance获取美股数据"""
+        try:
+            import yfinance as yf
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+            logger.info(f"使用yfinance获取美股数据: {code}, 日期: {start_date} - {end_date}")
+
+            # 创建ticker对象
+            ticker = yf.Ticker(code)
+
+            # 获取历史数据
+            df = ticker.history(start=start_date, end=end_date)
+
+            if df is not None and not df.empty:
+                # 重置索引，将日期变为列
+                df = df.reset_index()
+
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    'Date': 'date',
+                    'Open': 'open',
+                    'Close': 'close',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Volume': 'volume',
+                    'Adj Close': 'adj_close'
+                }
+
+                df.rename(columns=column_mapping, inplace=True)
+
+                # 确保日期格式正确
+                df['date'] = pd.to_datetime(df['date'])
+
+                logger.info(f"yfinance获取美股数据成功，数据量: {len(df)}")
+                return df
+            else:
+                logger.warning("yfinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("yfinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"yfinance获取美股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_etf_data_from_yfinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用yfinance获取ETF数据"""
+        try:
+            import yfinance as yf
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+            logger.info(f"使用yfinance获取ETF数据: {code}, 日期: {start_date} - {end_date}")
+
+            # 添加ETF后缀以提高准确性
+            ticker_code = code
+            if not code.endswith('.'):
+                # 尝试常见的ETF后缀
+                for suffix in ['', '.SS', '.SZ', '.HK']:
+                    try:
+                        test_code = code + suffix
+                        ticker = yf.Ticker(test_code)
+                        df = ticker.history(start=start_date, end=end_date)
+                        if df is not None and not df.empty:
+                            ticker_code = test_code
+                            break
+                    except:
+                        continue
+
+            # 获取历史数据
+            ticker = yf.Ticker(ticker_code)
+            df = ticker.history(start=start_date, end=end_date)
+
+            if df is not None and not df.empty:
+                # 重置索引，将日期变为列
+                df = df.reset_index()
+
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    'Date': 'date',
+                    'Open': 'open',
+                    'Close': 'close',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Volume': 'volume',
+                    'Adj Close': 'adj_close'
+                }
+
+                df.rename(columns=column_mapping, inplace=True)
+
+                # 确保日期格式正确
+                df['date'] = pd.to_datetime(df['date'])
+
+                logger.info(f"yfinance获取ETF数据成功，数据量: {len(df)}")
+                return df
+            else:
+                logger.warning("yfinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("yfinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"yfinance获取ETF数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_us_data_from_efinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用efinance获取美股数据"""
+        try:
+            import efinance as ef
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y%m%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+
+            # 转换日期格式 efinance使用YYYY-MM-DD格式
+            start_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+            end_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            logger.info(f"使用efinance获取美股数据: {code}, 日期: {start_formatted} - {end_formatted}")
+
+            # 获取美股历史数据
+            df = ef.stock.get_quote_history(code, beg=start_formatted, end=end_formatted)
+
+            if df is not None and not df.empty:
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    '日期': 'date',
+                    '开盘': 'open',
+                    '收盘': 'close',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交量': 'volume',
+                    '成交额': 'amount'
+                }
+
+                # 检查并重命名列
+                df_clean = df.copy()
+                available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+                df_clean.rename(columns=available_columns, inplace=True)
+
+                logger.info(f"efinance获取美股数据成功，数据量: {len(df_clean)}")
+                return df_clean
+            else:
+                logger.warning("efinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("efinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            return pd.DataFrame()
+
+
+            logger.warning(f"efinance获取美股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+
+    def _get_etf_data_from_efinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        try:
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y%m%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+
+            # 转换日期格式 efinance使用YYYY-MM-DD格式
+            start_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+            end_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            logger.info(f"使用efinance获取ETF数据: {code}, 日期: {start_formatted} - {end_formatted}")
+
+            # 获取ETF历史数据
+            df = ef.stock.get_quote_history(code, beg=start_formatted, end=end_formatted)
+
+            if df is not None and not df.empty:
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    '日期': 'date',
+                    '开盘': 'open',
+                    '收盘': 'close',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交量': 'volume',
+                    '成交额': 'amount'
+                }
+
+                # 检查并重命名列
+                df_clean = df.copy()
+                available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+                df_clean.rename(columns=available_columns, inplace=True)
+
+                logger.info(f"efinance获取ETF数据成功，数据量: {len(df_clean)}")
+                return df_clean
+            else:
+                logger.warning("efinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("efinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"efinance获取ETF数据失败: {str(e)}")
+            return pd.DataFrame()
+
     def _convert_spot_to_hist_format(self, spot_data: pd.Series) -> pd.DataFrame:
         """将实时数据转换为历史数据格式"""
         today = datetime.now().strftime('%Y-%m-%d')
@@ -274,6 +579,269 @@ class RobustStockDataFetcher:
             '换手率': spot_data.get('换手率', 0)
         }])
         return hist_format
+
+    def _get_a_stock_data_from_baostock(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用baostock获取A股历史数据"""
+        try:
+            # 登录baostock
+            login_result = bs.login()
+            if login_result.error_code != '0':
+                logger.warning(f"baostock登录失败: {login_result.error_msg}")
+                return pd.DataFrame()
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+            # 转换代码格式 baostock使用sh.600000格式
+            if code.startswith(('6', '5')):
+                bs_code = f"sh.{code}"
+            else:
+                bs_code = f"sz.{code}"
+
+            logger.info(f"使用baostock获取A股数据: {bs_code}, 日期: {start_date} - {end_date}")
+
+            # 获取历史数据
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                "date,code,open,high,low,close,volume,amount,adjustflag,turn,tradestatus,pctChg,peTTM,pbMRQ,psTTM,pcfNcfTTM,sticker",
+                start_date=start_date,
+                end_date=end_date,
+                frequency="d",
+                adjustflag="3"  # 后复权
+            )
+
+            if rs.error_code != '0':
+                logger.warning(f"baostock查询失败: {rs.error_msg}")
+                bs.logout()
+                return pd.DataFrame()
+
+            # 转换为DataFrame
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+
+            if not data_list:
+                logger.warning("baostock返回空数据")
+                bs.logout()
+                return pd.DataFrame()
+
+            # 创建DataFrame并标准化列名
+            df = pd.DataFrame(data_list, columns=rs.fields)
+
+            # 数据类型转换
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'amount', 'turn', 'pctChg', 'peTTM', 'pbMRQ', 'psTTM', 'pcfNcfTTM']
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            # 标准化列名以匹配系统格式
+            column_mapping = {
+                'date': 'date',
+                'open': 'open',
+                'high': 'high',
+                'low': 'low',
+                'close': 'close',
+                'volume': 'volume',
+                'amount': 'amount',
+                'pctChg': 'change_pct',
+                'turn': 'turnover'
+            }
+
+            # 检查并重命名列
+            df_clean = df.copy()
+            available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+            df_clean.rename(columns=available_columns, inplace=True)
+
+            # 登出baostock
+            bs.logout()
+
+            logger.info(f"baostock获取A股数据成功，数据量: {len(df_clean)}")
+            return df_clean
+
+        except ImportError:
+            logger.warning("baostock库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"baostock获取A股数据失败: {str(e)}")
+            try:
+                bs.logout()
+            except:
+                pass
+            return pd.DataFrame()
+
+    def _get_hk_data_from_yfinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用yfinance获取港股数据"""
+        try:
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+            # 港股代码格式化，确保有.HK后缀
+            if not code.endswith('.HK'):
+                hk_code = f"{code}.HK"
+            else:
+                hk_code = code
+
+            logger.info(f"使用yfinance获取港股数据: {hk_code}, 日期: {start_date} - {end_date}")
+
+            # 下载港股数据
+            ticker = yf.Ticker(hk_code)
+            df = ticker.history(start=start_date, end=end_date, auto_adjust=False, repair=False)
+
+            if df is not None and not df.empty:
+                # 重置索引，将日期变为列
+                df.reset_index(inplace=True)
+
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    'Date': 'date',
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume',
+                    'Adj Close': 'adj_close'
+                }
+
+                # 检查并重命名列
+                df_clean = df.copy()
+                available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+                df_clean.rename(columns=available_columns, inplace=True)
+
+                # 确保日期格式
+                if 'date' in df_clean.columns:
+                    df_clean['date'] = pd.to_datetime(df_clean['date']).dt.strftime('%Y-%m-%d')
+
+                logger.info(f"yfinance获取港股数据成功，数据量: {len(df_clean)}")
+                return df_clean
+            else:
+                logger.warning("yfinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("yfinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"yfinance获取港股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_a_spot_data_from_em(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用东方财富实时接口获取A股数据"""
+        try:
+            logger.info(f"使用东方财富实时接口获取A股数据: {code}")
+
+            # 获取实时数据
+            df = ak.stock_zh_a_spot_em()
+
+            if df is not None and not df.empty:
+                # 查找指定股票
+                stock_data = df[df['代码'] == code]
+
+                if not stock_data.empty:
+                    data = stock_data.iloc[0]
+                    # 转换为历史数据格式
+                    result = self._convert_spot_to_hist_format(data)
+                    logger.info(f"东方财富实时接口获取A股数据成功: {code}")
+                    return result
+                else:
+                    logger.warning(f"东方财富实时接口未找到股票代码: {code}")
+                    return pd.DataFrame()
+            else:
+                logger.warning("东方财富实时接口返回空数据")
+                return pd.DataFrame()
+
+        except Exception as e:
+            logger.warning(f"东方财富实时接口获取A股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_a_stock_data_from_efinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用efinance获取A股数据"""
+        try:
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y%m%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+
+            # 转换日期格式 efinance使用YYYY-MM-DD格式
+            start_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+            end_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            # A股代码格式化
+            if code.startswith(('6', '5')):
+                efinance_code = f"SH{code}"
+            else:
+                efinance_code = f"SZ{code}"
+
+            logger.info(f"使用efinance获取A股数据: {efinance_code}, 日期: {start_formatted} - {end_formatted}")
+
+            # 获取A股历史数据
+            df = ef.stock.get_quote_history(efinance_code, beg=start_formatted, end=end_formatted)
+
+            if df is not None and not df.empty:
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    '日期': 'date',
+                    '开盘': 'open',
+                    '收盘': 'close',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交量': 'volume',
+                    '成交额': 'amount',
+                    '涨跌幅': 'change_pct'
+                }
+
+                # 检查并重命名列
+                df_clean = df.copy()
+                available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+                df_clean.rename(columns=available_columns, inplace=True)
+
+                logger.info(f"efinance获取A股数据成功，数据量: {len(df_clean)}")
+                return df_clean
+            else:
+                logger.warning("efinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("efinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"efinance获取A股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_lof_spot_data_from_em(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用东方财富实时接口获取LOF数据"""
+        try:
+            logger.info(f"使用东方财富实时接口获取LOF数据: {code}")
+
+            # 获取LOF实时数据
+            df = ak.fund_lof_spot_em()
+
+            if df is not None and not df.empty:
+                # 查找指定LOF代码
+                lof_data = df[df['代码'] == code]
+
+                if not lof_data.empty:
+                    data = lof_data.iloc[0]
+                    # 转换为历史数据格式
+                    result = self._convert_spot_to_hist_format(data)
+                    logger.info(f"东方财富实时接口获取LOF数据成功: {code}")
+                    return result
+                else:
+                    logger.warning(f"东方财富实时接口未找到LOF代码: {code}")
+                    return pd.DataFrame()
+            else:
+                logger.warning("东方财富实时接口返回空数据")
+                return pd.DataFrame()
+
+        except Exception as e:
+            logger.warning(f"东方财富实时接口获取LOF数据失败: {str(e)}")
+            return pd.DataFrame()
 
     def _wait_for_interval(self, source_name: str, min_interval: float):
         """控制请求间隔，避免被封IP"""

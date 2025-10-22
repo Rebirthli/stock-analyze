@@ -32,6 +32,7 @@ import json
 import logging
 import time
 from enum import Enum
+import akshare as ak
 
 # 配置日志
 logging.basicConfig(
@@ -84,7 +85,7 @@ try:
         get_company_name, preprocess_recent_data, validate_stock_data,
         validate_technical_indicators, get_technical_summary_safe,
         get_risk_summary_safe, get_trend_quality_safe, get_volume_status_safe,
-        safe_float_convert
+        calculate_risk_level_safe, safe_float_convert
     )
     SYSTEM_IMPROVEMENTS_AVAILABLE = True
     logger.info("✓ 系统改进模块加载成功")
@@ -342,17 +343,35 @@ def get_stock_data_enhanced(stock_code: str, market_type: str, start_date: str =
         # 使用增强型数据获取器
         if robust_fetcher and ROBUST_FETCHER_AVAILABLE:
             logger.info("使用增强型数据获取器")
-            df = robust_fetcher.fetch_stock_data(
-                stock_code=stock_code,
-                market_type=MarketType(market_type),
-                start_date=start_date,
-                end_date=end_date
-            )
-            if not df.empty:
-                logger.info(f"增强型获取器成功，数据量: {len(df)}")
-                return df
+            # 转换市场类型字符串为robust_fetcher的MarketType枚举
+            from src.core.robust_stock_data_fetcher import MarketType as RobustMarketType
+
+            if market_type == 'A':
+                robust_market_type = RobustMarketType.A_SHARE
+            elif market_type == 'HK':
+                robust_market_type = RobustMarketType.HK_STOCK
+            elif market_type == 'US':
+                robust_market_type = RobustMarketType.US_STOCK
+            elif market_type == 'ETF':
+                robust_market_type = RobustMarketType.ETF
+            elif market_type == 'LOF':
+                robust_market_type = RobustMarketType.LOF
             else:
-                logger.warning("增强型获取器返回空数据")
+                logger.error(f"不支持的市场类型: {market_type}")
+                robust_market_type = None
+
+            if robust_market_type:
+                df = robust_fetcher.fetch_stock_data(
+                    stock_code=stock_code,
+                    market_type=robust_market_type,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                if not df.empty:
+                    logger.info(f"增强型获取器成功，数据量: {len(df)}")
+                    return df
+                else:
+                    logger.warning("增强型获取器返回空数据")
 
         # 回退到基础获取方式
         logger.info("回退到基础数据获取方式")
@@ -599,13 +618,29 @@ async def analyze_stock_enhanced(request: StockAnalysisRequest, token: str = Dep
         if SYSTEM_IMPROVEMENTS_AVAILABLE:
             company_name = get_company_name(request.stock_code, request.market_type.value)
         else:
-            company_name = f"{request.market_type.value}股票{request.stock_code}"
+            # 使用enhanced_app中的简化版本
+            try:
+                if request.market_type.value == 'A':
+                    stock_info = ak.stock_individual_info_em(symbol=request.stock_code)
+                    if stock_info is not None and not stock_info.empty:
+                        name_item = stock_info[stock_info['item'] == '股票简称']
+                        if not name_item.empty:
+                            company_name = name_item.iloc[0]['value']
+                        else:
+                            company_name = f"A股{request.stock_code}"
+                    else:
+                        company_name = f"A股{request.stock_code}"
+                else:
+                    company_name = f"{request.market_type.value}股票{request.stock_code}"
+            except Exception as e:
+                logger.warning(f"获取公司名称失败: {str(e)}")
+                company_name = f"{request.market_type.value}股票{request.stock_code}"
 
         # 生成概要信息 - 使用改进的安全函数
         if SYSTEM_IMPROVEMENTS_AVAILABLE:
             technical_summary = get_technical_summary_safe(technical_indicators)
             risk_summary = get_risk_summary_safe(risk_metrics)
-            risk_level = calculate_risk_level(risk_metrics)  # 保留原有函数
+            risk_level = _calculate_risk_level(risk_metrics)  # 使用内置函数
             trend_quality = get_trend_quality_safe(technical_indicators)
             volume_status = get_volume_status_safe(technical_indicators)
         else:
