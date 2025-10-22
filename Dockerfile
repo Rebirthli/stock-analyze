@@ -25,10 +25,9 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 复制项目文件
-COPY stock_analysis_api.py .
-COPY hk_stock_data_fetcher.py .
-COPY hk_stock_validator.py .
-COPY network_retry_manager.py .
+COPY src/ ./src/
+COPY main_enhanced.py .
+COPY config/ ./config/
 
 # 暴露端口
 EXPOSE 8085
@@ -38,4 +37,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8085/docs', timeout=5)" || exit 1
 
 # 启动应用
-CMD ["uvicorn", "stock_analysis_api:app", "--host", "0.0.0.0", "--port", "8085"]
+CMD ["python", "main_enhanced.py"]
