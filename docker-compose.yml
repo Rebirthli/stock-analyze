@@ -1,4 +1,41 @@
 services:
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: stock-analysis-redis
+    ports:
+      - "${REDIS_PORT:-7219}:6379"  # 外部端口7219，内部6379
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      # Redis数据持久化
+      - redis_data:/data
+      # Redis配置文件（可选）
+      # - ./config/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - stock-analysis-network
+    command: redis-server --appendonly yes --requirepass "StockAnalysis2025!Redis"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
   # 股票分析API服务
   stock-analysis-api:
     build:
@@ -6,7 +43,7 @@ services:
       dockerfile: Dockerfile
     container_name: stock-analysis-api
     ports:
-      - "${API_PORT:-8085}:8085"
+      - "${API_PORT:-9527}:8085"  # 外部端口9527，内部8085
     environment:
       # Python环境
       - PYTHONUNBUFFERED=1
@@ -14,6 +51,13 @@ services:
       # API配置
       - API_HOST=0.0.0.0
       - API_PORT=8085
+      # Redis配置
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=StockAnalysis2025!Redis
+      - REDIS_DB=0
+      - ENABLE_CACHE=true
+      - ENABLE_CIRCUIT_BREAKER=true
       # 时区设置
       - TZ=Asia/Shanghai
 
@@ -45,11 +89,11 @@ services:
 
     # 健康检查
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8085/docs', timeout=5)"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8085/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
     # 日志驱动
     logging:
@@ -58,8 +102,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # 依赖服务（如需数据库，可在此扩展）
-    depends_on: []
+    # 依赖Redis服务
+    depends_on:
+      redis:
+        condition: service_healthy
 
 networks:
   stock-analysis-network:
@@ -71,3 +117,6 @@ volumes:
     driver: local
   analysis_results:
     driver: local
+  redis_data:
+    driver: local
+    name: stock-analysis-redis-data

@@ -93,6 +93,15 @@ except ImportError as e:
     logger.warning(f"⚠ 无法导入系统改进模块: {e}")
     SYSTEM_IMPROVEMENTS_AVAILABLE = False
 
+# 尝试导入异步数据获取器
+try:
+    from src.core.async_stock_data_fetcher import AsyncStockDataFetcher, MarketType as AsyncMarketType, FetchResult
+    ASYNC_FETCHER_AVAILABLE = True
+    logger.info("✓ 异步数据获取器加载成功")
+except ImportError as e:
+    logger.warning(f"⚠ 无法导入异步数据获取器: {e}")
+    ASYNC_FETCHER_AVAILABLE = False
+
 # ============================================================================
 # FastAPI应用实例
 # ============================================================================
@@ -570,10 +579,216 @@ def _convert_spot_to_hist_format(spot_data: pd.Series) -> pd.DataFrame:
 # API端点定义
 # ============================================================================
 
+@app.post("/analyze-stock-async/", response_model=StockAnalysisResponse)
+async def analyze_stock_async(request: StockAnalysisRequest, token: str = Depends(verify_auth_token)):
+    """
+    异步股票分析接口 - 并发数据获取,采纳最快响应
+
+    特点:
+    - 异步并发数据获取
+    - 多数据源并发轮询
+    - 采纳最快响应的数据源
+    - Redis缓存集成
+    - 熔断器状态管理
+    """
+    start_time = time.time()
+
+    try:
+        logger.info(f"异步分析请求: {request.stock_code} ({request.market_type.value})")
+
+        # 使用异步数据获取器
+        if ASYNC_FETCHER_AVAILABLE:
+            async with AsyncStockDataFetcher(
+                enable_cache=request.enable_cache,
+                enable_circuit_breaker=True
+            ) as fetcher:
+                # 转换市场类型
+                async_market_type = AsyncMarketType(request.market_type.value)
+
+                # 并发获取数据
+                result = await fetcher.fetch_stock_data_concurrent(
+                    stock_code=request.stock_code,
+                    market_type=async_market_type,
+                    start_date=request.start_date,
+                    end_date=request.end_date
+                )
+
+                if not result.success or result.data is None or result.data.empty:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"无法获取股票数据: {request.stock_code} ({request.market_type.value}), 原因: {result.error_message}"
+                    )
+
+                df = result.data
+                data_source = result.source_name
+                fetch_time = result.fetch_time
+
+                logger.info(f"异步数据获取成功，数据量: {len(df)}, 来源: {data_source}, 耗时: {fetch_time:.3f}s")
+        else:
+            # 回退到同步方式
+            logger.warning("异步数据获取器不可用，回退到同步方式")
+            df = get_stock_data_enhanced(
+                stock_code=request.stock_code,
+                market_type=request.market_type.value,
+                start_date=request.start_date,
+                end_date=request.end_date
+            )
+            data_source = "sync_fallback"
+            fetch_time = 0.0
+
+            if df is None or df.empty:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"无法获取股票数据: {request.stock_code} ({request.market_type.value})"
+                )
+
+            logger.info(f"同步数据获取成功，数据量: {len(df)}")
+
+        # 数据预处理
+        df = _preprocess_stock_data(df, request.market_type.value)
+
+        # 计算技术指标
+        technical_indicators = _calculate_technical_indicators(df)
+
+        # 计算风险指标
+        risk_metrics = _calculate_risk_metrics(df)
+
+        # 计算市场评分
+        market_score = _calculate_market_score(technical_indicators, risk_metrics)
+
+        # 生成投资建议
+        investment_recommendation = _generate_investment_recommendation(market_score, technical_indicators)
+
+        # 数据质量评估
+        data_quality = _assess_data_quality(df, request.market_type.value)
+        data_quality['fetch_time'] = fetch_time
+        data_quality['async_mode'] = ASYNC_FETCHER_AVAILABLE
+
+        # 获取公司名称
+        if SYSTEM_IMPROVEMENTS_AVAILABLE:
+            company_name = get_company_name(request.stock_code, request.market_type.value)
+        else:
+            try:
+                if request.market_type.value == 'A':
+                    stock_info = ak.stock_individual_info_em(symbol=request.stock_code)
+                    if stock_info is not None and not stock_info.empty:
+                        name_item = stock_info[stock_info['item'] == '股票简称']
+                        if not name_item.empty:
+                            company_name = name_item.iloc[0]['value']
+                        else:
+                            company_name = f"A股{request.stock_code}"
+                    else:
+                        company_name = f"A股{request.stock_code}"
+                else:
+                    company_name = f"{request.market_type.value}股票{request.stock_code}"
+            except Exception as e:
+                # 静默处理连接错误,不污染日志
+                company_name = f"{request.market_type.value}股票{request.stock_code}"
+
+        # 生成概要信息
+        if SYSTEM_IMPROVEMENTS_AVAILABLE:
+            technical_summary = get_technical_summary_safe(technical_indicators)
+            risk_summary = get_risk_summary_safe(risk_metrics)
+            risk_level = _calculate_risk_level(risk_metrics)
+            trend_quality = get_trend_quality_safe(technical_indicators)
+            volume_status = get_volume_status_safe(technical_indicators)
+        else:
+            technical_summary = _get_technical_summary(technical_indicators, df)
+            risk_summary = _get_risk_summary(risk_metrics)
+            risk_level = _calculate_risk_level(risk_metrics)
+            trend_quality = _get_trend_quality(technical_indicators)
+            volume_status = _get_volume_status(technical_indicators)
+
+        # 计算价格变动信息
+        if len(df) >= 2:
+            current_price = float(df.iloc[-1]['close'])
+            prev_price = float(df.iloc[-2]['close'])
+            price_change = current_price - prev_price
+            price_change_pct = (price_change / prev_price) * 100
+        else:
+            current_price = float(df.iloc[-1]['close'])
+            price_change = 0.0
+            price_change_pct = 0.0
+
+        processing_time = time.time() - start_time
+
+        # 获取近14天交易数据
+        recent_data_list = []
+        try:
+            if len(df) > 0:
+                recent_df = df.tail(14).copy()
+                if SYSTEM_IMPROVEMENTS_AVAILABLE:
+                    recent_data_list = preprocess_recent_data(recent_df)
+                else:
+                    for _, row in recent_df.iterrows():
+                        row_dict = {}
+                        for col in recent_df.columns:
+                            value = row[col]
+                            if pd.isna(value):
+                                row_dict[col] = None
+                            elif isinstance(value, (np.integer, np.floating)):
+                                row_dict[col] = float(value)
+                            elif isinstance(value, pd.Timestamp):
+                                row_dict[col] = value.isoformat()
+                            else:
+                                row_dict[col] = value
+                        recent_data_list.append(row_dict)
+        except Exception as e:
+            logger.warning(f"生成recent_data时出错: {str(e)}")
+
+        return StockAnalysisResponse(
+            success=True,
+            stock_code=request.stock_code,
+            company_name=company_name,
+            market_type=request.market_type.value,
+            data_source=data_source,
+            analysis_date=datetime.now().isoformat(),
+
+            # 概要信息
+            technical_summary=technical_summary,
+            risk_summary=risk_summary,
+
+            # 详细信息
+            technical_indicators=technical_indicators,
+            risk_metrics=risk_metrics,
+
+            # 评分和建议
+            market_score=market_score,
+            investment_recommendation=investment_recommendation,
+            risk_level=risk_level,
+
+            # 价格信息
+            current_price=current_price,
+            price_change=price_change,
+            price_change_pct=price_change_pct,
+
+            # 数据质量和性能
+            data_quality=data_quality,
+            processing_time=processing_time,
+            message=f"异步分析成功完成 (数据来源: {data_source}, 获取耗时: {fetch_time:.3f}s)",
+
+            # 历史数据
+            recent_data=recent_data_list,
+
+            # 额外信息
+            vwap=technical_indicators.get('vwap'),
+            trend_quality=trend_quality,
+            volume_status=volume_status
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"异步分析失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"分析过程出错: {str(e)}"
+        )
+
 @app.post("/analyze-stock-enhanced/", response_model=StockAnalysisResponse)
 async def analyze_stock_enhanced(request: StockAnalysisRequest, token: str = Depends(verify_auth_token)):
     """
-    增强型股票分析接口 - 五市场完美支持
+    增强型股票分析接口 - 五市场完美支持(同步版本)
     """
     start_time = time.time()
 
@@ -633,7 +848,7 @@ async def analyze_stock_enhanced(request: StockAnalysisRequest, token: str = Dep
                 else:
                     company_name = f"{request.market_type.value}股票{request.stock_code}"
             except Exception as e:
-                logger.warning(f"获取公司名称失败: {str(e)}")
+                # 静默处理连接错误,不污染日志
                 company_name = f"{request.market_type.value}股票{request.stock_code}"
 
         # 生成概要信息 - 使用改进的安全函数
@@ -931,7 +1146,7 @@ def get_company_name(stock_code: str, market_type: str) -> str:
         return f"{market_type}股票{stock_code}"
 
     except Exception as e:
-        logger.warning(f"获取公司名称失败 {stock_code}({market_type}): {str(e)}")
+        # 静默处理所有错误,包括连接错误
         return f"{market_type}股票{stock_code}"
 
 def _preprocess_stock_data(df: pd.DataFrame, market_type: str) -> pd.DataFrame:

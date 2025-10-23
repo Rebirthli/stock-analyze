@@ -145,34 +145,43 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_zh_a_hist_sina",
+                    name="stock_zh_a_hist_em",
                     priority=3,
+                    func=lambda code, start, end: ak.fund_etf_hist_em(
+                        symbol=code, start_date=start, end_date=end, adjust="qfq"
+                    ),
+                    min_interval=0.5,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="efinance_a_stock",
+                    priority=4,
+                    func=self._get_a_stock_data_from_efinance,
+                    min_interval=0.6,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="qstock_a_stock",
+                    priority=5,
+                    func=self._get_a_stock_data_from_qstock,
+                    min_interval=0.7,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="baostock_history",
+                    priority=6,
+                    func=self._get_a_stock_data_from_baostock,
+                    min_interval=0.5,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="stock_zh_a_hist_sina",
+                    priority=7,
                     func=lambda code, start, end: ak.stock_zh_a_daily(
                         symbol=f"sh{code}" if code.startswith(('6', '5')) else f"sz{code}",
                         start_date=start, end_date=end
                     ),
                     min_interval=0.4,
-                    max_retries=3
-                ),
-                DataSourceConfig(
-                    name="baostock_history",
-                    priority=4,
-                    func=self._get_a_stock_data_from_baostock,
-                    min_interval=0.3,
-                    max_retries=3
-                ),
-                DataSourceConfig(
-                    name="stock_zh_a_spot_em",
-                    priority=5,
-                    func=self._get_a_spot_data_from_em,
-                    min_interval=0.2,
-                    max_retries=2
-                ),
-                DataSourceConfig(
-                    name="efinance_a_stock",
-                    priority=6,
-                    func=self._get_a_stock_data_from_efinance,
-                    min_interval=0.3,
                     max_retries=3
                 )
             ],
@@ -187,40 +196,38 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_hk_daily",
+                    name="stock_hk_spot_em",
                     priority=2,
-                    func=lambda code, start, end: ak.stock_hk_daily(
-                        symbol=code, start_date=start, end_date=end
-                    ),
+                    func=lambda code, start, end: ak.stock_hk_spot_em(),
                     min_interval=0.4,
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="yfinance_hk",
+                    name="efinance_hk_stock",
                     priority=3,
-                    func=self._get_hk_data_from_yfinance,
-                    min_interval=0.3,
+                    func=self._get_hk_data_from_efinance,
+                    min_interval=0.6,
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_hk_spot_em",
+                    name="qstock_hk_stock",
                     priority=4,
-                    func=lambda code, start, end: ak.stock_hk_spot_em(),
-                    min_interval=0.3,
-                    max_retries=2
+                    func=self._get_hk_data_from_qstock,
+                    min_interval=0.7,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="yfinance_hk",
+                    priority=5,
+                    func=self._get_hk_data_from_yfinance,
+                    min_interval=0.8,
+                    max_retries=3
                 )
             ],
             MarketType.US_STOCK: [
                 DataSourceConfig(
-                    name="yfinance_download",
-                    priority=1,
-                    func=self._get_us_data_from_yfinance,
-                    min_interval=0.3,
-                    max_retries=3
-                ),
-                DataSourceConfig(
                     name="stock_us_daily",
-                    priority=2,
+                    priority=1,
                     func=lambda code, start, end: ak.stock_us_daily(
                         symbol=code, adjust="qfq"
                     ),
@@ -229,18 +236,23 @@ class RobustStockDataFetcher:
                 ),
                 DataSourceConfig(
                     name="efinance_us_stock",
-                    priority=3,
+                    priority=2,
                     func=self._get_us_data_from_efinance,
-                    min_interval=0.3,
-                    max_retries=2
+                    min_interval=0.6,
+                    max_retries=3
                 ),
                 DataSourceConfig(
-                    name="stock_us_hist",
+                    name="qstock_us_stock",
+                    priority=3,
+                    func=self._get_us_data_from_qstock,
+                    min_interval=0.7,
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="yfinance_download",
                     priority=4,
-                    func=lambda code, start, end: ak.stock_us_hist(
-                        symbol=code, period="daily", start_date=start, end_date=end
-                    ),
-                    min_interval=0.4,
+                    func=self._get_us_data_from_yfinance,
+                    min_interval=0.8,
                     max_retries=3
                 )
             ],
@@ -255,34 +267,27 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="fund_etf_hist_sina",
+                    name="efinance_stock_quote",
                     priority=2,
-                    func=lambda code, start, end: ak.fund_etf_hist_sina(symbol=code),
-                    min_interval=0.4,
+                    func=self._get_etf_data_from_efinance,
+                    min_interval=0.6,
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="yfinance_etf",
+                    name="etf_as_stock_zh_a_hist",
                     priority=3,
-                    func=self._get_etf_data_from_yfinance,
-                    min_interval=0.3,
-                    max_retries=2
-                ),
-                DataSourceConfig(
-                    name="efinance_stock_quote",
-                    priority=4,
-                    func=self._get_etf_data_from_efinance,
-                    min_interval=0.3,
-                    max_retries=2
-                ),
-                DataSourceConfig(
-                    name="stock_zh_a_hist",
-                    priority=5,
                     func=lambda code, start, end: ak.stock_zh_a_hist(
                         symbol=code, start_date=start, end_date=end, adjust="qfq"
                     ),
                     min_interval=0.6,
-                    max_retries=4
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="etf_as_stock_spot",
+                    priority=4,
+                    func=lambda code, start, end: self._get_a_share_spot_data(code),
+                    min_interval=0.5,
+                    max_retries=3
                 )
             ],
             MarketType.LOF: [
@@ -296,34 +301,27 @@ class RobustStockDataFetcher:
                     max_retries=3
                 ),
                 DataSourceConfig(
-                    name="fund_lof_spot_em",
-                    priority=2,
-                    func=self._get_lof_spot_data_from_em,
-                    min_interval=0.3,
-                    max_retries=2
-                ),
-                DataSourceConfig(
                     name="efinance_lof",
-                    priority=3,
+                    priority=2,
                     func=self._get_etf_data_from_efinance,
-                    min_interval=0.3,
-                    max_retries=2
+                    min_interval=0.6,
+                    max_retries=3
                 ),
                 DataSourceConfig(
-                    name="yfinance_lof",
-                    priority=4,
-                    func=self._get_etf_data_from_yfinance,
-                    min_interval=0.3,
-                    max_retries=2
-                ),
-                DataSourceConfig(
-                    name="stock_zh_a_hist",
-                    priority=5,
+                    name="lof_as_stock_zh_a_hist",
+                    priority=3,
                     func=lambda code, start, end: ak.stock_zh_a_hist(
                         symbol=code, start_date=start, end_date=end, adjust="qfq"
                     ),
                     min_interval=0.6,
-                    max_retries=4
+                    max_retries=3
+                ),
+                DataSourceConfig(
+                    name="lof_as_stock_spot",
+                    priority=4,
+                    func=lambda code, start, end: self._get_a_share_spot_data(code),
+                    min_interval=0.5,
+                    max_retries=3
                 )
             ]
         }
@@ -1144,6 +1142,206 @@ class RobustStockDataFetcher:
         except Exception as e:
             logger.error(f"获取实时行情数据失败: {str(e)}")
             return {}
+
+    def _get_hk_data_from_efinance(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用efinance获取港股数据"""
+        try:
+            import efinance as ef
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y%m%d')
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+
+            # 转换日期格式 efinance使用YYYY-MM-DD格式
+            start_formatted = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+            end_formatted = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            # efinance港股代码格式
+            hk_code = code if code.endswith('.HK') else f"{code}.HK"
+
+            logger.info(f"使用efinance获取港股数据: {hk_code}, 日期: {start_formatted} - {end_formatted}")
+
+            # 获取港股历史数据
+            df = ef.stock.get_quote_history(hk_code, beg=start_formatted, end=end_formatted)
+
+            if df is not None and not df.empty:
+                # 标准化列名以匹配系统格式
+                column_mapping = {
+                    '日期': 'date',
+                    '开盘': 'open',
+                    '收盘': 'close',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交量': 'volume',
+                    '成交额': 'amount'
+                }
+
+                # 检查并重命名列
+                df_clean = df.copy()
+                available_columns = {col: new_col for col, new_col in column_mapping.items() if col in df_clean.columns}
+                df_clean.rename(columns=available_columns, inplace=True)
+
+                logger.info(f"efinance获取港股数据成功，数据量: {len(df_clean)}")
+                return df_clean
+            else:
+                logger.warning("efinance返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("efinance库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"efinance获取港股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_a_stock_data_from_qstock(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用qstock获取A股历史数据"""
+        try:
+            import qstock as qs
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            else:
+                end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            else:
+                start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+
+            logger.info(f"使用qstock获取A股数据: {code}, 日期: {start_date} - {end_date}")
+
+            # qstock使用get_data函数
+            df = qs.get_data(code=code, start=start_date, end=end_date)
+
+            if df is not None and not df.empty:
+                # 标准化列名
+                df = self._normalize_qstock_columns(df)
+                logger.info(f"qstock获取A股数据成功，数据量: {len(df)}")
+                return df
+            else:
+                logger.warning("qstock返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("qstock库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"qstock获取A股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_hk_data_from_qstock(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用qstock获取港股历史数据"""
+        try:
+            import qstock as qs
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            else:
+                end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            else:
+                start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+
+            # qstock港股代码格式
+            hk_code = code if code.endswith('.HK') else f"{code}.HK"
+
+            logger.info(f"使用qstock获取港股数据: {hk_code}, 日期: {start_date} - {end_date}")
+
+            df = qs.get_data(code=hk_code, start=start_date, end=end_date)
+
+            if df is not None and not df.empty:
+                df = self._normalize_qstock_columns(df)
+                logger.info(f"qstock获取港股数据成功，数据量: {len(df)}")
+                return df
+            else:
+                logger.warning("qstock返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("qstock库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"qstock获取港股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _get_us_data_from_qstock(self, code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
+        """使用qstock获取美股历史数据"""
+        try:
+            import qstock as qs
+
+            # 设置默认日期范围
+            if not end_date:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            else:
+                end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+
+            if not start_date:
+                start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            else:
+                start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+
+            logger.info(f"使用qstock获取美股数据: {code}, 日期: {start_date} - {end_date}")
+
+            df = qs.get_data(code=code, start=start_date, end=end_date)
+
+            if df is not None and not df.empty:
+                df = self._normalize_qstock_columns(df)
+                logger.info(f"qstock获取美股数据成功，数据量: {len(df)}")
+                return df
+            else:
+                logger.warning("qstock返回空数据")
+                return pd.DataFrame()
+
+        except ImportError:
+            logger.warning("qstock库未安装，跳过此数据源")
+            return pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"qstock获取美股数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _normalize_qstock_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """标准化qstock返回的列名"""
+        try:
+            column_mapping = {
+                'Date': 'date',
+                'date': 'date',
+                'Open': 'open',
+                'open': 'open',
+                'Close': 'close',
+                'close': 'close',
+                'High': 'high',
+                'high': 'high',
+                'Low': 'low',
+                'low': 'low',
+                'Volume': 'volume',
+                'volume': 'volume',
+                'Amount': 'amount',
+                'amount': 'amount',
+                '日期': 'date',
+                '开盘': 'open',
+                '收盘': 'close',
+                '最高': 'high',
+                '最低': 'low',
+                '成交量': 'volume',
+                '成交额': 'amount'
+            }
+
+            # 只重命名存在的列
+            existing_mappings = {k: v for k, v in column_mapping.items() if k in df.columns}
+            if existing_mappings:
+                df = df.rename(columns=existing_mappings)
+
+            return df
+        except Exception as e:
+            logger.warning(f"qstock列名标准化失败: {str(e)}")
+            return df
 
     def test_connectivity(self) -> Dict[str, bool]:
         """
