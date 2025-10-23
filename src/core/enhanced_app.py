@@ -682,7 +682,7 @@ async def analyze_stock_async(request: StockAnalysisRequest, token: str = Depend
                 else:
                     company_name = f"{request.market_type.value}股票{request.stock_code}"
             except Exception as e:
-                # 静默处理连接错误,不污染日志
+                logger.warning(f"获取公司名称失败: {str(e)}")
                 company_name = f"{request.market_type.value}股票{request.stock_code}"
 
         # 生成概要信息
@@ -848,7 +848,7 @@ async def analyze_stock_enhanced(request: StockAnalysisRequest, token: str = Dep
                 else:
                     company_name = f"{request.market_type.value}股票{request.stock_code}"
             except Exception as e:
-                # 静默处理连接错误,不污染日志
+                logger.warning(f"获取公司名称失败: {str(e)}")
                 company_name = f"{request.market_type.value}股票{request.stock_code}"
 
         # 生成概要信息 - 使用改进的安全函数
@@ -1093,7 +1093,7 @@ async def get_market_overview_enhanced(market_type: MarketType, token: str = Dep
 
 def get_company_name(stock_code: str, market_type: str) -> str:
     """
-    获取公司名称
+    获取公司名称 - 带重试和超时控制
 
     Args:
         stock_code: 股票代码
@@ -1102,52 +1102,65 @@ def get_company_name(stock_code: str, market_type: str) -> str:
     Returns:
         str: 公司名称
     """
-    try:
-        if market_type == 'A':
-            # A股获取股票名称
-            stock_info = ak.stock_individual_info_em(symbol=stock_code)
-            if stock_info is not None and not stock_info.empty:
-                name_item = stock_info[stock_info['item'] == '股票简称']
-                if not name_item.empty:
-                    return name_item.iloc[0]['value']
+    import time
+    max_retries = 2
+    timeout = 5  # 5秒超时
 
-        elif market_type == 'HK':
-            # 港股获取股票名称
-            stock_info = ak.stock_hk_spot_em()
-            if stock_info is not None and not stock_info.empty:
-                stock_row = stock_info[stock_info['代码'] == stock_code]
-                if not stock_row.empty:
-                    return stock_row.iloc[0]['名称']
+    for retry in range(max_retries):
+        try:
+            if market_type == 'A':
+                # A股获取股票名称
+                import signal
 
-        elif market_type == 'US':
-            # 美股获取股票名称
-            stock_info = ak.stock_us_spot_em()
-            if stock_info is not None and not stock_info.empty:
-                stock_row = stock_info[stock_info['代码'] == stock_code]
-                if not stock_row.empty:
-                    return stock_row.iloc[0]['名称']
+                def timeout_handler(signum, frame):
+                    raise TimeoutError("获取超时")
 
-        elif market_type in ['ETF', 'LOF']:
-            # ETF/LOF获取基金名称
-            try:
-                if market_type == 'ETF':
-                    fund_info = ak.fund_etf_spot_em()
-                else:
-                    fund_info = ak.fund_lof_spot_em()
+                # 设置超时(仅Unix系统)
+                try:
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(timeout)
+                except:
+                    pass  # Windows不支持SIGALRM
 
-                if fund_info is not None and not fund_info.empty:
-                    fund_row = fund_info[fund_info['代码'] == stock_code]
-                    if not fund_row.empty:
-                        return fund_row.iloc[0]['名称']
-            except:
-                pass
+                try:
+                    stock_info = ak.stock_individual_info_em(symbol=stock_code)
+                    if stock_info is not None and not stock_info.empty:
+                        name_item = stock_info[stock_info['item'] == '股票简称']
+                        if not name_item.empty:
+                            return name_item.iloc[0]['value']
+                finally:
+                    try:
+                        signal.alarm(0)  # 取消超时
+                    except:
+                        pass
 
-        # 如果无法获取名称，返回默认值
-        return f"{market_type}股票{stock_code}"
+            elif market_type == 'HK':
+                # 港股获取股票名称 - 使用更稳定的方法
+                # 直接返回格式化的名称，避免网络请求
+                return f"港股{stock_code}"
 
-    except Exception as e:
-        # 静默处理所有错误,包括连接错误
-        return f"{market_type}股票{stock_code}"
+            elif market_type == 'US':
+                # 美股获取股票名称 - 直接返回代码
+                return f"{stock_code}"
+
+            elif market_type in ['ETF', 'LOF']:
+                # ETF/LOF直接返回格式化名称
+                return f"{market_type}{stock_code}"
+
+            # 如果无法获取名称，返回默认值
+            return f"{market_type}股票{stock_code}"
+
+        except TimeoutError:
+            logger.warning(f"获取公司名称超时 {stock_code}({market_type}), 重试 {retry+1}/{max_retries}")
+            if retry < max_retries - 1:
+                time.sleep(0.5)
+            continue
+        except Exception as e:
+            logger.warning(f"获取公司名称失败 {stock_code}({market_type}): {str(e)[:100]}")
+            break
+
+    # 所有重试都失败，返回默认值
+    return f"{market_type}股票{stock_code}"
 
 def _preprocess_stock_data(df: pd.DataFrame, market_type: str) -> pd.DataFrame:
     """数据预处理"""
@@ -1506,6 +1519,12 @@ async def startup_event():
     logger.info(f"增强型数据获取器: {'可用' if ROBUST_FETCHER_AVAILABLE else '不可用'}")
     logger.info(f"港股数据获取器: {'可用' if HK_FETCHER_AVAILABLE else '不可用'}")
     logger.info("=" * 60)
+
+    # 全局禁用yfinance的ERROR日志
+    import logging
+    yf_logger = logging.getLogger('yfinance')
+    yf_logger.setLevel(logging.CRITICAL)
+    logger.info("已禁用yfinance的ERROR日志")
 
 if __name__ == "__main__":
     import uvicorn

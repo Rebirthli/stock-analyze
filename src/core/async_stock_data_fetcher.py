@@ -626,10 +626,10 @@ class AsyncStockDataFetcher:
         """使用qstock获取A股历史数据"""
         try:
             import qstock as qs
-            # qstock使用get_data函数获取历史数据
+            # qstock使用get_data函数，参数是code_list（列表）
             df = await asyncio.to_thread(
                 qs.get_data,
-                code=code,
+                code_list=[code],  # 注意：参数名是code_list，传入列表
                 start=start_date,
                 end=end_date
             )
@@ -638,24 +638,19 @@ class AsyncStockDataFetcher:
                 logger.info(f"A股 {code} 使用qstock接口成功")
                 return df
             return pd.DataFrame()
-        except ImportError as e:
-            # 静默处理导入错误,避免污染日志
-            return pd.DataFrame()
         except Exception as e:
-            # 只记录非导入错误
-            if "backtrader" not in str(e).lower():
-                logger.debug(f"qstock A股接口失败: {str(e)[:100]}")
+            logger.warning(f"qstock A股接口失败: {str(e)[:100]}")
             return pd.DataFrame()
 
     async def _fetch_hk_qstock_async(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """使用qstock获取港股历史数据"""
         try:
             import qstock as qs
-            # qstock港股代码格式
+            # qstock港股代码格式，参数是code_list（列表）
             hk_code = code if code.endswith('.HK') else f"{code}.HK"
             df = await asyncio.to_thread(
                 qs.get_data,
-                code=hk_code,
+                code_list=[hk_code],  # 注意：参数名是code_list，传入列表
                 start=start_date,
                 end=end_date
             )
@@ -664,22 +659,18 @@ class AsyncStockDataFetcher:
                 logger.info(f"港股 {code} 使用qstock接口成功")
                 return df
             return pd.DataFrame()
-        except ImportError as e:
-            # 静默处理导入错误,避免污染日志
-            return pd.DataFrame()
         except Exception as e:
-            # 只记录非导入错误
-            if "backtrader" not in str(e).lower():
-                logger.debug(f"qstock 港股接口失败: {str(e)[:100]}")
+            logger.warning(f"qstock 港股接口失败: {str(e)[:100]}")
             return pd.DataFrame()
 
     async def _fetch_us_qstock_async(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """使用qstock获取美股历史数据"""
         try:
             import qstock as qs
+            # qstock参数是code_list（列表）
             df = await asyncio.to_thread(
                 qs.get_data,
-                code=code,
+                code_list=[code],  # 注意：参数名是code_list，传入列表
                 start=start_date,
                 end=end_date
             )
@@ -688,13 +679,8 @@ class AsyncStockDataFetcher:
                 logger.info(f"美股 {code} 使用qstock接口成功")
                 return df
             return pd.DataFrame()
-        except ImportError as e:
-            # 静默处理导入错误,避免污染日志
-            return pd.DataFrame()
         except Exception as e:
-            # 只记录非导入错误
-            if "backtrader" not in str(e).lower():
-                logger.debug(f"qstock 美股接口失败: {str(e)[:100]}")
+            logger.warning(f"qstock 美股接口失败: {str(e)[:100]}")
             return pd.DataFrame()
 
     # ===== 新增: yfinance数据源 =====
@@ -704,6 +690,7 @@ class AsyncStockDataFetcher:
         try:
             import yfinance as yf
             import logging
+
             # 临时禁用yfinance的错误日志
             yf_logger = logging.getLogger('yfinance')
             original_level = yf_logger.level
@@ -731,10 +718,7 @@ class AsyncStockDataFetcher:
                 # 恢复yfinance日志级别
                 yf_logger.setLevel(original_level)
         except Exception as e:
-            # 只记录非常规错误
-            error_msg = str(e).lower()
-            if "delisted" not in error_msg and "timezone" not in error_msg:
-                logger.debug(f"yfinance 美股接口失败: {str(e)[:100]}")
+            logger.warning(f"yfinance 美股接口失败: {str(e)[:100]}")
             return pd.DataFrame()
 
     async def _fetch_hk_yfinance_async(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -742,20 +726,31 @@ class AsyncStockDataFetcher:
         try:
             import yfinance as yf
             import logging
+
             # 临时禁用yfinance的错误日志
             yf_logger = logging.getLogger('yfinance')
             original_level = yf_logger.level
             yf_logger.setLevel(logging.CRITICAL)
 
             try:
-                # 港股代码格式：00700.HK
-                if not code.endswith('.HK'):
-                    code = f"{code.zfill(5)}.HK"
+                # 港股代码格式验证和转换
+                # 确保代码格式正确: 5位数字.HK (如 01065.HK)
+                if code.endswith('.HK'):
+                    # 已经是正确格式,提取数字部分验证
+                    hk_code = code
+                    code_num = code.replace('.HK', '')
+                else:
+                    code_num = code
+                    hk_code = f"{code}.HK"
+
+                # 补齐到5位数字
+                code_num = code_num.zfill(5)
+                hk_code = f"{code_num}.HK"
 
                 start_dt = pd.to_datetime(start_date).strftime('%Y-%m-%d')
                 end_dt = pd.to_datetime(end_date).strftime('%Y-%m-%d')
 
-                ticker = yf.Ticker(code)
+                ticker = yf.Ticker(hk_code)
                 df = await asyncio.to_thread(
                     ticker.history,
                     start=start_dt,
@@ -766,15 +761,15 @@ class AsyncStockDataFetcher:
                     df = self._normalize_yfinance_columns(df)
                     logger.info(f"港股 {code} 使用yfinance接口成功")
                     return df
+
+                # 如果数据为空,记录警告但不抛出错误
+                logger.warning(f"yfinance 港股 {hk_code} 返回空数据,可能股票代码不存在或已退市")
                 return pd.DataFrame()
             finally:
                 # 恢复yfinance日志级别
                 yf_logger.setLevel(original_level)
         except Exception as e:
-            # 只记录非常规错误
-            error_msg = str(e).lower()
-            if "delisted" not in error_msg and "timezone" not in error_msg:
-                logger.debug(f"yfinance 港股接口失败: {str(e)[:100]}")
+            logger.warning(f"yfinance 港股接口失败: {str(e)[:100]}")
             return pd.DataFrame()
 
     # ===== 新增: baostock数据源（仅A股）=====
